@@ -1,0 +1,14 @@
+name: maze-nca-env
+channels:
+  - nvidia
+  - conda-forge
+
+dependencies:
+  - python=3.12
+  - pip
+  - numpy
+  - ipykernel
+  - cuda-toolkit=12.4
+  - cudnn=9.1
+  - pip:
+      - tensorflow==2.20.0

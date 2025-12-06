@@ -1,0 +1,63 @@
+# ---- Python bytecode / cache ----
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# ---- Virtual environments ----
+.env/
+.venv/
+venv/
+env/
+*.egg-info/
+.dist/
+
+# ---- Conda environment artifacts ----
+*.conda
+*.yaml~
+conda-meta/
+
+# ---- Jupyter Notebooks ----
+.ipynb_checkpoints/
+.jupyter/
+*.nbconvert/
+
+# ---- Logs / checkpoints / debug ----
+logs/
+*.log
+
+# ---- TensorFlow / training artifacts ----
+checkpoint/
+checkpoints/
+saved_models/
+model/
+*.ckpt
+*.ckpt.*
+events.out.tfevents.*
+
+# ---- Results directory ----
+results/
+output/
+runs/
+artifacts/
+
+# ---- OS / editor junk ----
+.DS_Store
+Thumbs.db
+
+# ---- Python packaging (if you later add pyproject) ----
+build/
+dist/
+*.egg-info/
+
+# ---- C extensions (not needed now, but safe) ----
+*.so
+
+# ---- VSCode / IDE settings ----
+.vscode/
+.idea/
+
+# ---- Temporary files ----
+*.tmp
+*.swp
+*.swo
