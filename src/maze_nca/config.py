@@ -81,10 +81,12 @@ class EnvConfig:
         tf_task_cfg["hole_size"] = tf.constant(self.hole_size, tf.int32)
 
         # Value Iteration parameters
-        tf_task_cfg["VI_goal_reward"] = tf.constant(self.VI_goal_reward, tf.float32)
-        tf_task_cfg["VI_step_cost"] = tf.constant(self.VI_step_cost, tf.float32)
-        tf_task_cfg["VI_gamma"] = tf.constant(self.VI_gamma, tf.float32)
-        tf_task_cfg["VI_theta"] = tf.constant(self.VI_theta, tf.float32)
-        tf_task_cfg["VI_max_iters"] = tf.constant(self.VI_max_iters, tf.int32)
+        tf_task_cfg["value_iteration_cfg"] = {
+            "goal_reward": tf.constant(self.VI_goal_reward, tf.float32),
+            "step_cost": tf.constant(self.VI_step_cost, tf.float32),
+            "gamma": tf.constant(self.VI_gamma, tf.float32),
+            "theta": tf.constant(self.VI_theta, tf.float32),
+            "max_iters": tf.constant(self.VI_max_iters, tf.int32),
+        }
 
         return tf_task_cfg
