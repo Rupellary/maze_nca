@@ -5,6 +5,7 @@ from maze_nca.nca import NCAModel
 from maze_nca.reward import softmax_reward
 from maze_nca.task_generation import *
 
+
 def plot_channel(tensor, channel, cmap="gray"):
     """
     Plot a single channel from an (H, W, C) tensor in grayscale.
@@ -17,6 +18,10 @@ def plot_channel(tensor, channel, cmap="gray"):
         Channel index to visualize
     cmap : str
         Matplotlib colormap (default: "gray")
+    
+    Returns
+    ----------
+    None
     """
 
     if isinstance(tensor, tf.Tensor):
@@ -39,9 +44,9 @@ def plot_channel(tensor, channel, cmap="gray"):
 
 
 
-
-# Generating states to probe reward function behavior
-
+#----------------------------------------
+#--- Testing Reward Function Behavior ---
+#----------------------------------------
 
 def _mask_walls(
     env: tf.Tensor,
@@ -58,7 +63,7 @@ def _mask_walls(
     return tf.concat([living_env, env[..., config.sl_non_living]], axis=-1)
 
 
-
+# --- Generating states to probe reward function behavior ---
 
 def _fill_space(
     env: tf.Tensor,
@@ -74,7 +79,6 @@ def _fill_space(
     env = tf.concat([alive, env], axis=-1)
     env = _mask_walls(env, config)
     return env
-
 
 
 def _half_fill_space(
@@ -94,7 +98,6 @@ def _half_fill_space(
     return env
 
 
-
 def _empty_space(
     env: tf.Tensor,
     living_channels
@@ -106,7 +109,6 @@ def _empty_space(
     B, H, W, C = tf.unstack(tf.shape(env))
     alive = tf.zeros((B, H, W, living_channels), dtype=tf.float32)
     return tf.concat([alive, env], axis=-1)
-
 
 
 def _goal_only(
@@ -127,31 +129,60 @@ def _goal_only(
 
 
 
+# --- Scoring benchmark states ---
 
 def benchmark_reward(
     config: EnvConfig,
     ca: NCAModel,
     batch_size: int,
-    base_seed: int
+    base_seed: tf.Tensor
 ) -> None:
+    """
+    Generates various states and compute the reward for them to probe the behavior of the reward function.
+    This is to avoid a reward function that incentivizes space-filling or self-destructive behavior.
+    Tests:
+        1. Starting state
+        2. Space fully active everywhere (other than walls)
+        3. Space half active everywhere (other than walls)
+        4. Fully inactive in all living channels
+        5. Active only in the goal location
+        
+    Parameters
+    ----------
+    config : EnvConfig
+        Custom dataclass with simulation parameters
+        Attributes used: [
+            num_living_channels,
+            get_task_shape(), 
+            to_tf_task_cfg(), 
+        ]
+    ca : NCAModel
+        NCA model for initializing starting state
+    batch_size : int
+        Number of tasks in the batch
+    base_seed : tf.Tensor
+        Stateless seed tensor, shape: (2), dtype: int32
+    
+    Returns
+    ----------
+    None
+    """
 
-    env = generate_batch(
+    # Generating batch of tasks
+    tasks = generate_batch(
         config.to_tf_task_cfg(),
         batch_size=batch_size,
         task_shape=config.get_task_shape(),
         base_seed=base_seed
     )
-
-    start_batch = ca.egg(env, config)
-
-    full_batch = _fill_space(env, config.num_living_channels, config)
-
-    half_full_batch = _half_fill_space(env, config.num_living_channels, config)
-
-    empty_batch = _empty_space(env, config.num_living_channels)
-
-    goal_batch = _goal_only(env, config.num_living_channels, config)
-
+    # Adding various living channel states for testing
+    start_batch = ca.egg(tasks, config)
+    full_batch = _fill_space(tasks, config.num_living_channels, config)
+    half_full_batch = _half_fill_space(tasks, config.num_living_channels, config)
+    empty_batch = _empty_space(tasks, config.num_living_channels)
+    goal_batch = _goal_only(tasks, config.num_living_channels, config)
+    
+    # Displaying test results
     print(f"""
     Starting Reward: {softmax_reward(start_batch, config)}
     Goal Reward: {softmax_reward(goal_batch, config)}
