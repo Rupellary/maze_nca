@@ -1,9 +1,9 @@
 import tensorflow as tf
 from maze_nca.config import EnvConfig
-from typing import Optional, Callable
+from typing import Optional, Callable, Dict, Any
 
 @tf.function
-def make_bordered_space(
+def _make_bordered_space(
     height: int,
     width: int
 ) -> tf.Tensor:
@@ -35,8 +35,8 @@ def make_bordered_space(
 def make_single_wall_env(
     height: int,
     width: int,
-    hole_size: Optional[int] = 1,
-    seed: Optional[int] = None
+    hole_size: Optional[int],
+    seed: tf.Tensor 
 ) -> tf.Tensor:
     """
     Randomly generates an environment with a start and goal location and a single wall between them with a hole in the wall.
@@ -49,7 +49,7 @@ def make_single_wall_env(
         width of the space
     hole_size : int
         width of the hole in the wall
-    seed : int
+    seed : tf.Tensor
         random seed
 
     Returns
@@ -58,13 +58,9 @@ def make_single_wall_env(
         Tensor with shape (H, W, 3) containing obstacle, start, and goal channels
     """
 
-     # Establish random seed
-    if seed is not None:
-        tf.random.set_seed(seed)
-
     # Wall is always generated veritcally, randomly transpose to get horizontal walls
     # Randomly determine whether to transpose
-    do_transpose = tf.random.uniform((), 0, 2, dtype=tf.int32)
+    do_transpose = tf.random.uniform((), 0, 2, dtype=tf.int32, seed=seed)
     # If transposing at the end, use swapped dimensions
     H, W = tf.cond(
         do_transpose > 0,
@@ -74,7 +70,7 @@ def make_single_wall_env(
 
     # --- Generate obstacles channel with random vertical wall with hole ---
     # Initialize obstacles channel with border
-    obstacles_channel: tf.Tensor = make_bordered_space(H, W)
+    obstacles_channel: tf.Tensor = _make_bordered_space(H, W)
 
     # -- Randomly place vertical wall -- (annoying in tf b/c immutable)
     # Define repeated variable
@@ -155,7 +151,7 @@ def make_single_wall_env(
 @tf.function
 def add_goal_distance_channel(
     env: tf.Tensor,
-    config: EnvConfig
+    idx_goal: int
 ) -> tf.Tensor:
     """
     Takes in obstacle, goal, start tensor and adds goal distance channel euclidean distance from each coordinate to goal.
@@ -164,11 +160,8 @@ def add_goal_distance_channel(
     ----------
     env : tf.Tensor
         Tensor of shape (H, W, 3) with obstacle, goal, and start channels
-    config : EnvConfig
-        Config object specifying simulation parameters
-        Attributes used: [
-            idx_goal
-        ]
+    idx_goal: int
+        Index for channel with goal location
 
     Returns
     ----------
@@ -179,7 +172,7 @@ def add_goal_distance_channel(
     H, W, C = tf.unstack(tf.shape(env))
 
     # --- Identify goal coordinates ---
-    goal_channel = config.idx_goal+1 # adjusted because the problem distance channel hasn't been added yet
+    goal_channel = idx_goal+1 # adjusted because the problem distance channel hasn't been added yet
     # Locate where goal is (where goal channel is non-zero)
     goal_pos = tf.where(env[..., goal_channel] > 0) # shape: (1, (H, W))
     # Unpack coordinates
@@ -204,7 +197,9 @@ def add_goal_distance_channel(
 @tf.function
 def add_problem_distance_channel(
     env: tf.Tensor,
-    config: EnvConfig
+    idx_goal: int,
+    idx_obstacles: int,
+    vi_config: Dict[str, tf.Tensor]
 ) -> tf.Tensor:
     """
     Takes in obstacle, goal, start, goal_distance tensor and adds problem distance channel using value iteration to determine path lengths.
@@ -213,21 +208,22 @@ def add_problem_distance_channel(
     ----------
     env : tf.Tensor
         Tensor of shape (H, W, 4) with obstacle, goal, start, and goal_distance channels
-    config : EnvConfig
-        Config object specifying simulation parameters
-        Attributes used: [
-            idx_goal, idx_obstacles,
-            VI_step_cost, VI_goal_reward, VI_max_iters, VI_gamma, VI_theta
-        ]
+    idx_goal : int
+        index of channel with goal location
+    idx_obstacles : int
+        index of channel with wall coordinates
+    vi_config : Dict[str, Any]
+        graph-friendly dict object specifying value iteration parameters
+        Keys used:
+            step_cost, goal_reward, max_iters, gamma, theta
 
     Returns
     ----------
     env : tf.Tensor
         Tensor of shape (H, W, 5) containing input channels + problem_distance channel
     """
-
     # --- Identify goal coordinates ---
-    goal_channel: int = config.idx_goal+1 # adjusted because the problem distance channel hasn't been added yet
+    goal_channel: int = idx_goal+1 # adjusted because the problem distance channel hasn't been added yet
     # Locate where goal is (where goal channel is non-zero)
     goal_pos = tf.where(env[..., goal_channel] > 0) # shape: (num_goals, 2) i.e. (1, (H, W))
     # Unpack coordinates
@@ -238,16 +234,13 @@ def add_problem_distance_channel(
     H, W, _ = tf.unstack(tf.shape(env))
     # Initialize value and reward
     V = tf.zeros((H, W), dtype=tf.float32)
-    R = tf.ones((H, W), dtype=tf.float32) * -config.VI_step_cost
+    R = tf.ones((H, W), dtype=tf.float32) * -vi_config['step_cost']
     # Insert terminal state reward
-    V = tf.tensor_scatter_nd_update(V, [[goal_y, goal_x]], [config.VI_goal_reward])
-    R = tf.tensor_scatter_nd_update(R, [[goal_y, goal_x]], [config.VI_goal_reward])
-
-    # --- Define actions ---
-    actions = tf.constant([[-1, 0], [1, 0], [0, -1], [0, 1]], dtype=tf.int32)
+    V = tf.tensor_scatter_nd_update(V, [[goal_y, goal_x]], [vi_config['goal_reward']])
+    R = tf.tensor_scatter_nd_update(R, [[goal_y, goal_x]], [vi_config['goal_reward']])
 
     # Set up maze mask (1 = wall, 0 = free)
-    obstacle_channel: int = config.idx_obstacles + 1 # idx adjusted because the problem distance channel hasn't been added yet
+    obstacle_channel: int = idx_obstacles + 1 # idx adjusted because the problem distance channel hasn't been added yet
     obstacle_mask = tf.cast(env[..., obstacle_channel], tf.bool)
 
     # --- Setting up value iteration function for while loop ---
@@ -256,7 +249,6 @@ def add_problem_distance_channel(
         # Pad both V and maze to avoid index problems when slicing for actions
         Vpad = tf.pad(V, [[1,1],[1,1]], constant_values=-1e9)
         Opad = tf.pad(obstacle_mask, [[1,1],[1,1]], constant_values=True)  # pad with walls
-
 
         # --- Defining transitions with fixed slices to avoid loop ---
         # Identify value of each neighbor (V(s')) for each action)
@@ -285,10 +277,10 @@ def add_problem_distance_channel(
         max_neighbor = tf.reduce_max(neighbors, axis=-1)  # shape: (H, W)
 
         # Updated value is reward + discounted value of best action/neighbor
-        new_V = R + config.VI_gamma * max_neighbor # shape: (H, W)
+        new_V = R + vi_config['gamma'] * max_neighbor # shape: (H, W)
 
         # Keep terminal value fixed
-        new_V = tf.tensor_scatter_nd_update(new_V, [[goal_y, goal_x]], [config.VI_goal_reward]) # shape: (H, W)
+        new_V = tf.tensor_scatter_nd_update(new_V, [[goal_y, goal_x]], [vi_config['goal_reward']]) # shape: (H, W)
 
         # Don't update wall value
         new_V = tf.where(obstacle_mask, V, new_V) # shape: (H, W)
@@ -300,14 +292,14 @@ def add_problem_distance_channel(
     # --- Condition for while loop ---
     # Check for convergence
     def cond(V, delta):
-        return delta > config.VI_theta
+        return delta > vi_config['theta']
 
     # --- Perform value iteration ---
     V_final, _ = tf.while_loop(
         cond,
         bellman_update,
         loop_vars=(V, tf.constant(1e9, tf.float32)),
-        maximum_iterations=config.VI_max_iters
+        maximum_iterations=vi_config['max_iters']
     )
 
     # --- Add new channel to environment ---
@@ -318,23 +310,46 @@ def add_problem_distance_channel(
 
 @tf.function
 def generate_task(
-    config: EnvConfig
+    tf_config: Dict[str, Any],
+    seed: tf.Tensor
 ) -> tf.Tensor:
     env = make_single_wall_env(
-        height=config.height,
-        width=config.width,
-        hole_size=config.hole_size,
-        seed=config.seed
+        height=tf_config['max_height'],
+        width=tf_config['max_width'],
+        hole_size=tf_config['hole_size'],
+        seed=seed
     )
-    env = add_goal_distance_channel(env, config)
-    env = add_problem_distance_channel(env, config)
-    return env
+    env = add_goal_distance_channel(
+        env, 
+        tf_config['idx_goal']
+    )
+    task = add_problem_distance_channel(
+        env,
+        tf_config['idx_goal'],
+        tf_config['idx_start'],
+        tf_config['value_iteration']
+    )
+    return task
 
 
 
 
 @tf.function
 def generate_batch(
-    config: EnvConfig
+    tf_task_config: Dict[str, Any],
+    batch_size: int,
+    task_shape: tuple[int],
+    base_seed: tf.Tensor
 ) -> tf.Tensor:
-    return tf.map_fn(generate_task, tf.range(config.batch_size))
+    
+    # Generate seeds
+    seeds = tf.random.split(base_seed, num=batch_size)
+
+    # Map over seeds
+    batch = tf.map_fn(
+        lambda s: generate_task(tf_task_config, s),
+        seeds,
+        fn_output_signature=tf.TensorSpec(task_shape, tf.float32),
+        parallel_iterations=4,
+    )
+    return batch
