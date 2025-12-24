@@ -33,22 +33,22 @@ class EnvConfig:
     VI_max_iters: int = int(1e3)
 
     # NCA Params
-    death_threshold: float = 0.01,
-    num_living_channels: int = 8,
+    death_threshold: float = 0.01
+    num_living_channels: int = 8
 
     # Embryogensis
     live_init: float = 0.5
 
     # Reward
-    activity_cost: float = 1.0,
-    denom_epsilon: float = 1.0,
+    activity_cost: float = 1.0
+    denom_epsilon: float = 1.0
     reward_temperature: float = 0.1
 
     # BPTT
-    reward_function: Callable[[tf.Tensor], tf.Tensor] = None,#softmax_reward,
-    rollout_steps: int = 30,
-    loss_gamma: float = 0.9,
-    lr: float = 1e-3,
+    reward_function: Callable[[tf.Tensor], tf.Tensor] = None #softmax_reward
+    rollout_steps: int = 30
+    loss_gamma: float = 0.9
+    lr: float = 1e-3
     weight_decay: float = 1e-4
 
 
@@ -59,7 +59,8 @@ class EnvConfig:
         """
         Returns tuple with H, W, C of task tensors
         """
-        return (self.max_height, self.max_width, self.num_living_channels+5)
+        C = self.num_living_channels + 5
+        return self.max_height, self.max_width, C
 
     def to_tf_task_cfg(self) -> Dict[str, Any]:
         """
