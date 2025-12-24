@@ -5,7 +5,8 @@ import tensorflow as tf
 @dataclass(frozen=True)
 class EnvConfig:
 
-    # Channel index aliases: cannot be shuffled because of how tasks are generated
+    # Channel index aliases: 
+    # These are *descriptive* references, changing them will break the code
     idx_alive: int = 0
     sl_living: slice = slice(0, -5)
     idx_goal_distance: int = -5
@@ -54,6 +55,11 @@ class EnvConfig:
     # Playing around
     alive_scaled: bool = True
 
+    def get_task_shape(self) -> tuple[int]:
+        """
+        Returns tuple with H, W, C of task tensors
+        """
+        return (self.max_height, self.max_width, self.num_living_channels+5)
 
     def to_tf_task_cfg(self) -> Dict[str, Any]:
         """
