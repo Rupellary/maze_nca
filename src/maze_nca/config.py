@@ -55,12 +55,14 @@ class EnvConfig:
     # Playing around
     alive_scaled: bool = True
 
+
     def get_task_shape(self) -> tuple[int]:
         """
         Returns tuple with H, W, C of task tensors
         """
         C = self.num_living_channels + 5
         return self.max_height, self.max_width, C
+
 
     def to_tf_task_cfg(self) -> Dict[str, Any]:
         """

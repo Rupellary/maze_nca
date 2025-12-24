@@ -43,7 +43,7 @@ def plot_channel(tensor, channel, cmap="gray"):
 # Generating states to probe reward function behavior
 
 
-def mask_walls(
+def _mask_walls(
     env: tf.Tensor,
     config: EnvConfig
 ) -> tf.Tensor:
@@ -60,7 +60,7 @@ def mask_walls(
 
 
 
-def fill_space(
+def _fill_space(
     env: tf.Tensor,
     living_channels,
     config: EnvConfig
@@ -72,12 +72,12 @@ def fill_space(
     B, H, W, C = tf.unstack(tf.shape(env))
     alive = tf.ones((B, H, W, living_channels), dtype=tf.float32)
     env = tf.concat([alive, env], axis=-1)
-    env = mask_walls(env, config)
+    env = _mask_walls(env, config)
     return env
 
 
 
-def half_fill_space(
+def _half_fill_space(
     env: tf.Tensor,
     living_channels,
     config: EnvConfig
@@ -90,12 +90,12 @@ def half_fill_space(
     alive = tf.ones((B, H, W, living_channels), dtype=tf.float32)
     alive /= 2
     env = tf.concat([alive, env], axis=-1)
-    env = mask_walls(env, config)
+    env = _mask_walls(env, config)
     return env
 
 
 
-def empty_space(
+def _empty_space(
     env: tf.Tensor,
     living_channels
 ) -> tf.Tensor:
@@ -109,7 +109,7 @@ def empty_space(
 
 
 
-def goal_only(
+def _goal_only(
     env : tf.Tensor,
     living_channels,
     config: EnvConfig
@@ -144,13 +144,13 @@ def benchmark_reward(
 
     start_batch = ca.egg(env, config)
 
-    full_batch = fill_space(env, config.num_living_channels, config)
+    full_batch = _fill_space(env, config.num_living_channels, config)
 
-    half_full_batch = half_fill_space(env, config.num_living_channels, config)
+    half_full_batch = _half_fill_space(env, config.num_living_channels, config)
 
-    empty_batch = empty_space(env, config.num_living_channels)
+    empty_batch = _empty_space(env, config.num_living_channels)
 
-    goal_batch = goal_only(env, config.num_living_channels, config)
+    goal_batch = _goal_only(env, config.num_living_channels, config)
 
     print(f"""
     Starting Reward: {softmax_reward(start_batch, config)}
