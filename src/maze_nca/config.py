@@ -1,9 +1,10 @@
 from dataclasses import dataclass
-from typing import Optional, Callable
+from typing import Optional, Callable, Any, Dict
 import tensorflow as tf
 
 @dataclass(frozen=True)
 class EnvConfig:
+
     # Channel index aliases: cannot be shuffled because of how tasks are generated
     idx_alive: int = 0
     sl_living: slice = slice(0, -5)
@@ -16,9 +17,12 @@ class EnvConfig:
     sl_perceptible: slice = slice(0, -2)
     sl_non_living: slice = slice(-5, None)
 
-    # NCA Params
-    death_threshold: float = 0.01,
-    num_living_channels: int = 8,
+    # Maze Size
+    max_height: int = 15
+    max_width: int = 15
+
+    # Single Wall Params
+    hole_size: int = 3
 
     # Value Iteration
     VI_goal_reward: float = 1
@@ -26,6 +30,10 @@ class EnvConfig:
     VI_gamma: float = 0.9
     VI_theta: float = 1e-4
     VI_max_iters: int = int(1e3)
+
+    # NCA Params
+    death_threshold: float = 0.01,
+    num_living_channels: int = 8,
 
     # Embryogensis
     live_init: float = 0.5
@@ -45,3 +53,38 @@ class EnvConfig:
 
     # Playing around
     alive_scaled: bool = True
+
+
+    def to_tf_task_cfg(self) -> Dict[str, Any]:
+        """
+        Converts task generator configs to graph-friendly dict
+        """
+        tf_task_cfg: Dict[str, Any] = {}
+
+        # Channel index aliases
+        tf_task_cfg["idx_alive"] = tf.constant(self.idx_alive, tf.int32)
+        tf_task_cfg["idx_goal_distance"] = tf.constant(self.idx_goal_distance, tf.int32)
+        tf_task_cfg["idx_obstacles"] = tf.constant(self.idx_obstacles, tf.int32)
+        tf_task_cfg["idx_goal"] = tf.constant(self.idx_goal, tf.int32)
+        tf_task_cfg["idx_start"] = tf.constant(self.idx_start, tf.int32)
+        tf_task_cfg["idx_problem_distance"] = tf.constant(self.idx_problem_distance, tf.int32)
+
+        tf_task_cfg["sl_living"] = self.sl_living
+        tf_task_cfg["sl_perceptible"] = self.sl_perceptible
+        tf_task_cfg["sl_non_living"] = self.sl_non_living
+
+        # Maze size
+        tf_task_cfg["max_height"] = tf.constant(self.max_height, tf.int32)
+        tf_task_cfg["max_width"] = tf.constant(self.max_width, tf.int32)
+
+        # Single wall params
+        tf_task_cfg["hole_size"] = tf.constant(self.hole_size, tf.int32)
+
+        # Value Iteration parameters
+        tf_task_cfg["VI_goal_reward"] = tf.constant(self.VI_goal_reward, tf.float32)
+        tf_task_cfg["VI_step_cost"] = tf.constant(self.VI_step_cost, tf.float32)
+        tf_task_cfg["VI_gamma"] = tf.constant(self.VI_gamma, tf.float32)
+        tf_task_cfg["VI_theta"] = tf.constant(self.VI_theta, tf.float32)
+        tf_task_cfg["VI_max_iters"] = tf.constant(self.VI_max_iters, tf.int32)
+
+        return tf_task_cfg
