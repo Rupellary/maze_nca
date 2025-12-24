@@ -327,7 +327,7 @@ def generate_task(
         env,
         tf_config['idx_goal'],
         tf_config['idx_obstacles'],
-        tf_config['value_iteration']
+        tf_config['value_iteration_cfg']
     )
     return task
 
