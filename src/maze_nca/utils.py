@@ -132,8 +132,6 @@ def benchmark_reward(
     config: EnvConfig,
     ca: NCAModel,
     batch_size: int = 10,
-    height: int = 10,
-    width: int = 10,
     living_channels: int = 8,
 ) -> None:
 
@@ -144,9 +142,10 @@ def benchmark_reward(
     goal_tasks = []
 
     for i in range(batch_size):
-        env = make_single_wall_env(height, width, 2, i)
-        env = add_goal_distance_channel(env, config)
-        env = add_problem_distance_channel(env, config)
+        env = generate_task(
+            config.to_tf_task_cfg(),
+            seed=i
+        )
 
         start = ca.egg(env, config)
         start_tasks.append(start)
