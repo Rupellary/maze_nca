@@ -57,10 +57,18 @@ def make_single_wall_env(
     env : tf.Tensor
         Tensor with shape (H, W, 3) containing obstacle, start, and goal channels
     """
+    s_transpose = tf.random.fold_in(seed, 0)
+    s_wall = tf.random.fold_in(seed, 1)
+    s_hole = tf.random.fold_in(seed, 2)
+    s_left_y = tf.random.fold_in(seed, 3)
+    s_left_x = tf.random.fold_in(seed, 4)
+    s_right_y = tf.random.fold_in(seed, 5)
+    s_right_x = tf.random.fold_in(seed, 6)
+    s_left_right = tf.random.fold_in(seed, 7)
 
     # Wall is always generated veritcally, randomly transpose to get horizontal walls
     # Randomly determine whether to transpose
-    do_transpose = tf.random.uniform((), 0, 2, dtype=tf.int32, seed=seed)
+    do_transpose = tf.random.stateless_uniform((), s_transpose, 0, 2, dtype=tf.int32)
     # If transposing at the end, use swapped dimensions
     H, W = tf.cond(
         do_transpose > 0,
@@ -76,7 +84,7 @@ def make_single_wall_env(
     # Define repeated variable
     wall_length: int = H-2
     # Find random location with at least 1 empty space between border and wall
-    wall_col = tf.random.uniform((), 2, W-2, dtype=tf.int32)
+    wall_col = tf.random.stateless_uniform((), s_wall, 2, W-2, dtype=tf.int32)
     # Generate y coordinates for wall (all coordinates but borders)
     wall_y = tf.range(1, H - 1) # shape: (H-2,)
     # Generate x coordinates for wall (a bunch of the column coordinate)
@@ -90,7 +98,7 @@ def make_single_wall_env(
 
     # -- Poke a hole in the wall --
     # Randomly choose a location with enough room for hole and border
-    hole_start = tf.random.uniform((), 1, H - 1 - hole_size, dtype=tf.int32)
+    hole_start = tf.random.stateless_uniform((), s_hole, 1, H - 1 - hole_size, dtype=tf.int32)
     # Generate range of y coordinates for hole
     hole_y = tf.range(hole_start, hole_start + hole_size) # shape: (hole_size,)
     # Generate x coordinates for hole (a few of the wall column coordinate)
@@ -110,22 +118,22 @@ def make_single_wall_env(
 
     # -- Find valid coordinates on left side of wall and place into one channel --
     # Randomly choose from any y other than borders
-    left_y = tf.random.uniform((), 1, H-1, dtype=tf.int32)
+    left_y = tf.random.stateless_uniform((), s_left_y, 1, H-1, dtype=tf.int32)
     # Randomly choose from any x on left side of wall other than borders
-    left_x = tf.random.uniform((), 1, wall_col, dtype=tf.int32)
+    left_x = tf.random.stateless_uniform((), s_left_x, 1, wall_col, dtype=tf.int32)
     # Place 1 in chosen coordinates
     left = tf.tensor_scatter_nd_update(left, [[left_y, left_x]], [1])
 
     # -- Find valid coordinates on right side of wall and place into other channel --
     # Randomly choose from any y other than borders
-    right_y = tf.random.uniform((), 1, H-1, dtype=tf.int32)
+    right_y = tf.random.stateless_uniform((), s_right_y, 1, H-1, dtype=tf.int32)
     # Randomly choose from any x on right side of wall other than borders
-    right_x = tf.random.uniform((), wall_col+1, W-1, dtype=tf.int32)
+    right_x = tf.random.stateless_uniform((), s_right_x, wall_col+1, W-1, dtype=tf.int32)
     # Place 1 in chosen coordinates
     right = tf.tensor_scatter_nd_update(right, [[right_y, right_x]], [1])
 
     # -- Randomly determine which is start and which is goal --
-    swap = tf.random.uniform((), 0, 2, dtype=tf.int32)
+    swap = tf.random.stateless_uniform((), s_left_right, 0, 2, dtype=tf.int32)
     start, goal = tf.cond(
         swap > 0,
         lambda: (right, left),
@@ -137,7 +145,6 @@ def make_single_wall_env(
     env = tf.stack([obstacles_channel, goal, start], axis=-1) # shape: (H, W, 3)
 
     # --- Randomly transpose so wall is sometimes horizontal ---
-    do_transpose = tf.random.uniform((), 0, 2, dtype=tf.int32)
     env = tf.cond(
         do_transpose > 0,
         lambda: tf.transpose(env, perm=[1, 0, 2]), # swap H and W
@@ -209,11 +216,11 @@ def add_problem_distance_channel(
     env : tf.Tensor
         Tensor of shape (H, W, 4) with obstacle, goal, start, and goal_distance channels
     idx_goal : int
-        index of channel with goal location
+        Index of channel with goal location
     idx_obstacles : int
-        index of channel with wall coordinates
+        Index of channel with wall coordinates
     vi_config : Dict[str, Any]
-        graph-friendly dict object specifying value iteration parameters
+        Graph-friendly dict object specifying value iteration parameters
         Keys used:
             step_cost, goal_reward, max_iters, gamma, theta
 
@@ -333,15 +340,41 @@ def generate_task(
 
 
 
-
 @tf.function
 def generate_batch(
     tf_task_config: Dict[str, Any],
-    batch_size: int,
+    batch_size: tf.Tensor,
     task_shape: tuple[int],
     base_seed: tf.Tensor
 ) -> tf.Tensor:
+    """
+    Generates a batch of maze tasks
+
+    Parameters
+    ----------
+    tf_task_config : Dict[str, Any]
+        Graph-friendly pytree with various configuration parameters
+        Keys used:
+            height,
+            width,
+            hole_size,
+            idx_goal,
+            idx_obstacles,
+            value_iteration_cfg
+    batch_size : tf.Tensor
+        Number of tasks per batch
+    task_shape : tuple[int]
+        Tuple with H, W, C sizes of task tensors
+    base_seed : tf.Tensor
+        Seed to be split for randomized maze generation
     
+    Returns
+    ----------
+    batch : tf.Tensor
+        tensor of shape (B, H, W, C) without living channels
+    """
+    H, W, C = task_shape
+
     # Generate seeds
     seeds = tf.random.split(base_seed, num=batch_size)
 
@@ -349,7 +382,7 @@ def generate_batch(
     batch = tf.map_fn(
         lambda s: generate_task(tf_task_config, s),
         seeds,
-        fn_output_signature=tf.TensorSpec(task_shape, tf.float32),
+        fn_output_signature=tf.TensorSpec([H, W, 5], tf.float32),
         parallel_iterations=4,
     )
     return batch

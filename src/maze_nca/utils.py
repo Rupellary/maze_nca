@@ -52,8 +52,8 @@ def mask_walls(
     """
 
     living_env = env[..., config.sl_living]
-    wall_mask = 1 - env[..., config.idx_obstacles] # shape: (H, W)
-    wall_mask = tf.expand_dims(wall_mask, axis=-1) # shape: (H, W, 1)
+    wall_mask = 1 - env[..., config.idx_obstacles] # shape: (B, H, W)
+    wall_mask = tf.expand_dims(wall_mask, axis=-1) # shape: (B, H, W, 1)
     living_env *= wall_mask
     return tf.concat([living_env, env[..., config.sl_non_living]], axis=-1)
 
@@ -69,8 +69,8 @@ def fill_space(
     Creates state where living channels are active everywhere. Helper function for probing reward function.
     """
 
-    H, W, C = tf.unstack(tf.shape(env))
-    alive = tf.ones((H, W, living_channels), dtype=tf.float32)
+    B, H, W, C = tf.unstack(tf.shape(env))
+    alive = tf.ones((B, H, W, living_channels), dtype=tf.float32)
     env = tf.concat([alive, env], axis=-1)
     env = mask_walls(env, config)
     return env
@@ -86,8 +86,8 @@ def half_fill_space(
     Creates state where living channels are half-active everywhere. Helper function for probing reward function.
     """
 
-    H, W, C = tf.unstack(tf.shape(env))
-    alive = tf.ones((H, W, living_channels), dtype=tf.float32)
+    B, H, W, C = tf.unstack(tf.shape(env))
+    alive = tf.ones((B, H, W, living_channels), dtype=tf.float32)
     alive /= 2
     env = tf.concat([alive, env], axis=-1)
     env = mask_walls(env, config)
@@ -103,8 +103,8 @@ def empty_space(
     Creates state where living channels are inactive everywhere. Helper function for probing reward function.
     """
 
-    H, W, C = tf.unstack(tf.shape(env))
-    alive = tf.zeros((H, W, living_channels), dtype=tf.float32)
+    B, H, W, C = tf.unstack(tf.shape(env))
+    alive = tf.zeros((B, H, W, living_channels), dtype=tf.float32)
     return tf.concat([alive, env], axis=-1)
 
 
@@ -119,11 +119,11 @@ def goal_only(
     """
 
     # Locate goal
-    goal_mask = tf.cast(env[..., config.idx_goal:config.idx_goal+1], tf.float32) # shape: (H, W, 1)
+    goal_mask = tf.cast(env[..., config.idx_goal:config.idx_goal+1], tf.float32) # shape: (B, H, W, 1)
     # Broadcast across living channels
-    alive = tf.tile(goal_mask, [1, 1, living_channels]) # shape: (H, W, living_channels)
+    alive = tf.tile(goal_mask, [1, 1, 1, living_channels]) # shape: (B, H, W, living_channels)
     # Combine with non-living environment
-    return tf.concat([alive, env], axis=-1) # shape: (H, W, all_channels)
+    return tf.concat([alive, env], axis=-1) # shape: (B, H, W, all_channels)
 
 
 
@@ -131,42 +131,26 @@ def goal_only(
 def benchmark_reward(
     config: EnvConfig,
     ca: NCAModel,
-    batch_size: int = 10,
-    living_channels: int = 8,
+    batch_size: int,
+    base_seed: int
 ) -> None:
 
-    start_tasks = []
-    full_tasks = []
-    half_full_tasks = []
-    empty_tasks = []
-    goal_tasks = []
+    env = generate_batch(
+        config.to_tf_task_cfg(),
+        batch_size=batch_size,
+        task_shape=config.get_task_shape(),
+        base_seed=base_seed
+    )
 
-    for i in range(batch_size):
-        env = generate_task(
-            config.to_tf_task_cfg(),
-            seed=i
-        )
+    start_batch = ca.egg(env, config)
 
-        start = ca.egg(env, config)
-        start_tasks.append(start)
+    full_batch = fill_space(env, config.num_living_channels, config)
 
-        full = fill_space(env, living_channels, config)
-        full_tasks.append(full)
+    half_full_batch = half_fill_space(env, config.num_living_channels, config)
 
-        half_full = half_fill_space(env, living_channels, config)
-        half_full_tasks.append(half_full)
+    empty_batch = empty_space(env, config.num_living_channels)
 
-        empty = empty_space(env, living_channels)
-        empty_tasks.append(empty)
-
-        goal = goal_only(env, living_channels, config)
-        goal_tasks.append(goal)
-
-    start_batch = tf.stack(start_tasks, axis=0)
-    full_batch = tf.stack(full_tasks, axis=0)
-    half_full_batch = tf.stack(half_full_tasks, axis=0)
-    empty_batch = tf.stack(empty_tasks, axis=0)
-    goal_batch = tf.stack(goal_tasks, axis=0)
+    goal_batch = goal_only(env, config.num_living_channels, config)
 
     print(f"""
     Starting Reward: {softmax_reward(start_batch, config)}
