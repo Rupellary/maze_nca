@@ -123,12 +123,12 @@ class NCAModel(tf.keras.Model):
         """
 
         # Locate start
-        start_mask = tf.cast(env[..., config.idx_start:config.idx_start+1], tf.float32) # shape: (H, W, 1)
+        start_mask = tf.cast(env[..., config.idx_start:config.idx_start+1], tf.float32) # shape: (B, H, W, 1)
         # Broadcast across living channels
-        living_channels = start_mask * config.live_init # shape: (H, W, 1)
-        living_channels = tf.tile(living_channels, [1, 1, self.living_channels]) # shape: (H, W, living_channels)
+        living_channels = start_mask * config.live_init # shape: (B, H, W, 1)
+        living_channels = tf.repeat(living_channels, repeats=self.living_channels, axis=-1) # shape: (B, H, W, living_channels)
         # Combine with non-living environment
-        return tf.concat([living_channels, env], axis=-1) # shape: (H, W, all_channels)
+        return tf.concat([living_channels, env], axis=-1) # shape: (B, H, W, all_channels)
 
 
     # def embryogenesis
