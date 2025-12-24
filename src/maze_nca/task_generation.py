@@ -326,7 +326,7 @@ def generate_task(
     task = add_problem_distance_channel(
         env,
         tf_config['idx_goal'],
-        tf_config['idx_start'],
+        tf_config['idx_obstacles'],
         tf_config['value_iteration']
     )
     return task
