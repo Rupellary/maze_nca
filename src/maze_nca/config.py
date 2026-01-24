@@ -14,9 +14,9 @@ class EnvConfig:
     idx_start: int = -2
     idx_problem_distance: int = -1
     # Indices for easy slice creation (slices can't be serialized)
-    idxs_living: tuple = tuple(0, -5)
-    idxs_perceptible: tuple = tuple(0, -2)
-    idxs_nonliving: tuple = tuple(-5, None)
+    idxs_living: tuple = (0, -5)
+    idxs_perceptible: tuple = (0, -2)
+    idxs_nonliving: tuple = (-5, None)
 
     # --- Space Specifications ---
     # Maze Size
