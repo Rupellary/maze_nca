@@ -37,6 +37,8 @@ class EnvConfig:
     num_living_channels: int = 8 
     death_threshold: float = 0.01 # for death masking
     update_rate: float = 0.5 # for stochastic updating
+    avg_signal_threshold: float = 0.01 # for preventing spontaneous generation
+    delta_limit: float = 0.5 # smoothens change over time
     # Embryogensis
     live_init: float = 0.5
 
@@ -130,5 +132,7 @@ class EnvConfig:
         tf_nca_cfg['death_threshold'] = tf.constant(self.death_threshold, tf.float32)
         tf_nca_cfg['update_rate'] = tf.constant(self.update_rate, tf.float32)
         tf_nca_cfg['live_init'] = tf.constant(self.live_init, tf.float32)
+        tf_nca_cfg['avg_signal_threshold'] = tf.constant(self.avg_signal_threshold, tf.float32)
+        tf_nca_cfg['delta_limit'] = tf.constant(self.delta_limit, tf.float32)
 
         return tf_nca_cfg

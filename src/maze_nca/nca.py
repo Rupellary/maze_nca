@@ -156,8 +156,10 @@ class NCAModel(tf.keras.Model):
         alterable_world = world[..., sl_living] # just living channels
         task_env = world[..., sl_nonliving] # just non-living channels
 
+
         # --- Perceive Neighbors (convolve into feature maps) ---
         perceived = self.perceive(perceptible_world) # shape: (B, H, W, num_filters)
+
 
         # --- Apply reaction at a per-cell level ---
         B, H, W, C = tf.unstack(tf.shape(perceived))
@@ -169,6 +171,7 @@ class NCAModel(tf.keras.Model):
         # Unflatten, restoring original shape, distributing reactions spatially
         reaction = tf.reshape(cell_reactions, (B, H, W, -1)) # shape: (B, H, W, num_living_channels)
 
+
         # --- Mask obstacle cells from being updated ---
         # Generate mask withs 0s where walls are and 1s elsewhere
         wall_channel = slice(
@@ -179,6 +182,7 @@ class NCAModel(tf.keras.Model):
         # Mask wall locations from update
         reaction *= maze_mask # shape: (B, H, W, num_living_channels)
 
+
         # --- Stochastic updating ---
         # Generate random binary mask
         stoch_mask = tf.cast(
@@ -188,18 +192,67 @@ class NCAModel(tf.keras.Model):
         # Stop random cells from updating
         reaction *= stoch_mask # shape: (B, H, W, num_living_channels)
 
+        # --- Prevent spontaneous generation, requiring signals propogate through space ---
+        # -- Prevent spontaneous generation of life --
+        # Can only become alive if there is life in the neighborhood
+        neighborhood_kernel = tf.ones(
+            (3, 3, 1, 1), 
+            dtype=reaction.dtype
+        )
+        alive_channel = slice(
+            self.config['idx_alive'], 
+            self.config['idx_alive']+1
+        ) # must slice to preserve channel dim
+        # Sum aliveness channel in 3x3 neighborhood
+        neighborhood_aliveness = tf.nn.conv2d(
+            world[..., alive_channel],
+            neighborhood_kernel,
+            strides=1,
+            padding='SAME'
+        ) # shape: (B, H, W, 1)
+        # Check for surrounding life
+        life_adjacent_mask = neighborhood_aliveness >= self.config['death_threshold'] # shape: (B, H, W, 1)
+        life_adjacent_mask = tf.cast(life_adjacent_mask, reaction.dtype)
+        # Mask life in nonliving areas, preventing spontaneous generation
+        life_reaction = reaction[..., alive_channel] * life_adjacent_mask # shape: (B, H, W, 1)
+
+        # -- Prevent spontaneous generation of signals --
+        # Other channels can synthesize one another but cannot arise from nothing
+        neighborhood_kernel = tf.ones(
+            (3, 3, self.config['num_living_channels'], 1), 
+            dtype=reaction.dtype
+        )
+        neighborhood_presence = tf.nn.conv2d(
+            world[..., sl_living],
+            neighborhood_kernel,
+            strides=1,
+            padding='SAME'
+        ) # shape: (B, H, W, 1)
+        signal_threshold = self.config['avg_signal_threshold'] * self.config['num_living_channels']
+        signal_adjacent_mask = neighborhood_presence >= signal_threshold # shape: (B, H, W, 1)
+        signal_adjacent_mask = tf.cast(signal_adjacent_mask, reaction.dtype)
+        signal_reaction = reaction[..., 1:] * signal_adjacent_mask # shape: (B, H, W, num_living_channels-1)
+
+        # -- Recombine masked alive channel and masked signal channels --
+        reaction = tf.concat([life_reaction, signal_reaction], axis=-1)
+
+
+        # --- Dampen deltas ---
+        reaction = self.config['delta_limit'] * tf.tanh(reaction / self.config['delta_limit'])
+
         # --- Update living channel states ---
         new_living_state = alterable_world + reaction # shape: (B, H, W, num_living_channels)
 
         # --- Apply death threshold ---
         # Generate binary mask with 0s for cells below death threshold
-        alive_mask = new_living_state[..., self.config['idx_alive']] >= self.config['death_threshold'] # shape: (B, H, W)
-        alive_mask = tf.cast(tf.expand_dims(alive_mask, -1), new_living_state.dtype) # shape: (B, H, W, 1)
+        alive_mask = new_living_state[..., alive_channel] >= self.config['death_threshold'] # shape: (B, H, W, 1)
+        alive_mask = tf.cast(alive_mask, new_living_state.dtype)
         # Broadcast to set all living channels to 0 in death locations
         new_living_state *= alive_mask # shape: (B, H, W, num_living_channels)
 
-        # --- Bound states between 0 and 1 in a way that is differentiable ---
-        new_living_state = (tf.tanh(new_living_state) + 1.0) / 2.0 # shape: (B, H, W, num_living_channels)
+
+        # --- Prevent negative signaling ---
+        new_living_state = tf.maximum(new_living_state, 0)
 
         # --- Recombine living and non-living channels ---
         new_state = tf.concat([new_living_state, task_env], axis=3) # shape: (B,H,W,living+non_living)
