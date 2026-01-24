@@ -39,6 +39,7 @@ class EnvConfig:
     update_rate: float = 0.5 # for stochastic updating
     avg_signal_threshold: float = 0.01 # for preventing spontaneous generation
     delta_limit: float = 0.5 # smoothens change over time
+    signal_decay: float = 0.01 # adds bias towards inactivity in living channels
     # Embryogensis
     live_init: float = 0.5
 
@@ -134,5 +135,6 @@ class EnvConfig:
         tf_nca_cfg['live_init'] = tf.constant(self.live_init, tf.float32)
         tf_nca_cfg['avg_signal_threshold'] = tf.constant(self.avg_signal_threshold, tf.float32)
         tf_nca_cfg['delta_limit'] = tf.constant(self.delta_limit, tf.float32)
+        tf_nca_cfg['signal_decay'] = tf.constant(self.signal_decay, tf.float32)
 
         return tf_nca_cfg

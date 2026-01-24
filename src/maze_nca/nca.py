@@ -238,10 +238,16 @@ class NCAModel(tf.keras.Model):
 
 
         # --- Dampen deltas ---
-        reaction = self.config['delta_limit'] * tf.tanh(reaction / self.config['delta_limit'])
+        reaction = self.config['delta_limit'] * tf.tanh(reaction / self.config['delta_limit']) # shape: (B, H, W, num_living_channels)
+
+
+        # --- Apply signal decay ---
+        alterable_world *= (1.0 - self.config['signal_decay']) # shape: (B, H, W, num_living_channels)
+
 
         # --- Update living channel states ---
         new_living_state = alterable_world + reaction # shape: (B, H, W, num_living_channels)
+
 
         # --- Apply death threshold ---
         # Generate binary mask with 0s for cells below death threshold
@@ -251,9 +257,10 @@ class NCAModel(tf.keras.Model):
         new_living_state *= alive_mask # shape: (B, H, W, num_living_channels)
 
 
-        # --- Prevent negative signaling ---
+        # --- Prevent negative signals ---
         new_living_state = tf.maximum(new_living_state, 0)
 
+
         # --- Recombine living and non-living channels ---
-        new_state = tf.concat([new_living_state, task_env], axis=3) # shape: (B,H,W,living+non_living)
+        new_state = tf.concat([new_living_state, task_env], axis=3) # shape: (B, H, W, living+non_living)
         return new_state
