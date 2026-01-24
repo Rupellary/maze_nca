@@ -55,19 +55,22 @@ def _mask_walls(
     """
     Helper function for deactivating living channels where there are walls
     """
+    # Convert tuples to slices
+    sl_living = slice(*config.idxs_living)
+    sl_nonliving = slice(*config.idxs_nonliving)
 
-    living_env = env[..., config.sl_living]
+    living_env = env[..., sl_living]
     wall_mask = 1 - env[..., config.idx_obstacles] # shape: (B, H, W)
     wall_mask = tf.expand_dims(wall_mask, axis=-1) # shape: (B, H, W, 1)
     living_env *= wall_mask
-    return tf.concat([living_env, env[..., config.sl_non_living]], axis=-1)
+    return tf.concat([living_env, env[..., sl_nonliving]], axis=-1)
 
 
 # --- Generating states to probe reward function behavior ---
 
 def _fill_space(
     env: tf.Tensor,
-    living_channels,
+    num_living_channels,
     config: EnvConfig
 ) -> tf.Tensor:
     """
@@ -75,7 +78,7 @@ def _fill_space(
     """
 
     B, H, W, C = tf.unstack(tf.shape(env))
-    alive = tf.ones((B, H, W, living_channels), dtype=tf.float32)
+    alive = tf.ones((B, H, W, num_living_channels), dtype=tf.float32)
     env = tf.concat([alive, env], axis=-1)
     env = _mask_walls(env, config)
     return env
@@ -83,7 +86,7 @@ def _fill_space(
 
 def _half_fill_space(
     env: tf.Tensor,
-    living_channels,
+    num_living_channels,
     config: EnvConfig
 ) -> tf.Tensor:
     """
@@ -91,7 +94,7 @@ def _half_fill_space(
     """
 
     B, H, W, C = tf.unstack(tf.shape(env))
-    alive = tf.ones((B, H, W, living_channels), dtype=tf.float32)
+    alive = tf.ones((B, H, W, num_living_channels), dtype=tf.float32)
     alive /= 2
     env = tf.concat([alive, env], axis=-1)
     env = _mask_walls(env, config)
@@ -100,20 +103,20 @@ def _half_fill_space(
 
 def _empty_space(
     env: tf.Tensor,
-    living_channels
+    num_living_channels
 ) -> tf.Tensor:
     """
     Creates state where living channels are inactive everywhere. Helper function for probing reward function.
     """
 
     B, H, W, C = tf.unstack(tf.shape(env))
-    alive = tf.zeros((B, H, W, living_channels), dtype=tf.float32)
+    alive = tf.zeros((B, H, W, num_living_channels), dtype=tf.float32)
     return tf.concat([alive, env], axis=-1)
 
 
 def _goal_only(
-    env : tf.Tensor,
-    living_channels,
+    env: tf.Tensor,
+    num_living_channels,
     config: EnvConfig
 ) -> tf.Tensor:
     """
@@ -123,7 +126,7 @@ def _goal_only(
     # Locate goal
     goal_mask = tf.cast(env[..., config.idx_goal:config.idx_goal+1], tf.float32) # shape: (B, H, W, 1)
     # Broadcast across living channels
-    alive = tf.tile(goal_mask, [1, 1, 1, living_channels]) # shape: (B, H, W, living_channels)
+    alive = tf.tile(goal_mask, [1, 1, 1, num_living_channels]) # shape: (B, H, W, num_living_channels)
     # Combine with non-living environment
     return tf.concat([alive, env], axis=-1) # shape: (B, H, W, all_channels)
 
@@ -152,7 +155,7 @@ def benchmark_reward(
     config : EnvConfig
         Custom dataclass with simulation parameters
         Attributes used: [
-            num_living_channels,
+            num_num_living_channels,
             get_task_shape(), 
             to_tf_task_cfg(), 
         ]
@@ -176,11 +179,11 @@ def benchmark_reward(
         base_seed=base_seed
     )
     # Adding various living channel states for testing
-    start_batch = ca.egg(tasks, config)
-    full_batch = _fill_space(tasks, config.num_living_channels, config)
-    half_full_batch = _half_fill_space(tasks, config.num_living_channels, config)
-    empty_batch = _empty_space(tasks, config.num_living_channels)
-    goal_batch = _goal_only(tasks, config.num_living_channels, config)
+    start_batch = ca.egg(tasks)
+    full_batch = _fill_space(tasks, ca.config['num_living_channels'], config)
+    half_full_batch = _half_fill_space(tasks, ca.config['num_living_channels'], config)
+    empty_batch = _empty_space(tasks, ca.config['num_living_channels'])
+    goal_batch = _goal_only(tasks, ca.config['num_living_channels'], config)
     
     # Displaying test results
     print(f"""

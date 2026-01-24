@@ -171,7 +171,11 @@ class NCAModel(tf.keras.Model):
 
         # --- Mask obstacle cells from being updated ---
         # Generate mask withs 0s where walls are and 1s elsewhere
-        maze_mask = tf.cast(1 - world[..., self.config['idx_obstacles']], reaction.dtype) # shape: (B, H, W, 1)
+        wall_channel = slice(
+            self.config['idx_obstacles'], 
+            self.config['idx_obstacles']+1
+        ) # must slice to preserve channel dim
+        maze_mask = tf.cast(1 - world[..., wall_channel], reaction.dtype) # shape: (B, H, W, 1)
         # Mask wall locations from update
         reaction *= maze_mask # shape: (B, H, W, num_living_channels)
 
