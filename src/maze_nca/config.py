@@ -8,44 +8,44 @@ class EnvConfig:
     # Channel index aliases: 
     # These are *descriptive* references, changing them will break the code
     idx_alive: int = 0
-    sl_living: slice = slice(0, -5)
     idx_goal_distance: int = -5
     idx_obstacles: int = -4
     idx_goal: int = -3
     idx_start: int = -2
     idx_problem_distance: int = -1
 
-    sl_perceptible: slice = slice(0, -2)
-    sl_non_living: slice = slice(-5, None)
+    idxs_living: tuple = tuple(0, -5)
+    idxs_perceptible: tuple = tuple(0, -2)
+    idxs_nonliving: tuple = tuple(-5, None)
 
+    # --- Space Specifications ---
     # Maze Size
     max_height: int = 15
     max_width: int = 15
-
-    # Single Wall Params
+    # Single Wall Task Params
     hole_size: int = 3
 
-    # Value Iteration
+    # --- Value Iteration ---
     VI_goal_reward: float = 1
     VI_step_cost: float = 1
     VI_gamma: float = 0.9
     VI_theta: float = 1e-4
     VI_max_iters: int = int(1e3)
 
-    # NCA Params
-    death_threshold: float = 0.01
-    num_living_channels: int = 8
-
+    # --- NCA ---
+    num_neurons: int = 32
+    num_living_channels: int = 8 
+    death_threshold: float = 0.01 # for death masking
+    update_rate: float = 0.5 # for stochastic updating
     # Embryogensis
     live_init: float = 0.5
 
-    # Reward
+    # --- Reward ---
     activity_cost: float = 1.0
     denom_epsilon: float = 1.0
     reward_temperature: float = 0.1
 
-    # BPTT
-    reward_function: Callable[[tf.Tensor], tf.Tensor] = None #softmax_reward
+    # --- BPTT ---
     rollout_steps: int = 30
     loss_gamma: float = 0.9
     lr: float = 1e-3
@@ -60,6 +60,7 @@ class EnvConfig:
         """
         Returns tuple with H, W, C of task tensors
         """
+
         C = self.num_living_channels + 5
         return self.max_height, self.max_width, C
 
@@ -68,6 +69,7 @@ class EnvConfig:
         """
         Converts task generator configs to graph-friendly dict
         """
+
         tf_task_cfg: Dict[str, Any] = {}
 
         # Channel index aliases
@@ -78,9 +80,9 @@ class EnvConfig:
         tf_task_cfg["idx_start"] = tf.constant(self.idx_start, tf.int32)
         tf_task_cfg["idx_problem_distance"] = tf.constant(self.idx_problem_distance, tf.int32)
 
-        tf_task_cfg["sl_living"] = self.sl_living
-        tf_task_cfg["sl_perceptible"] = self.sl_perceptible
-        tf_task_cfg["sl_non_living"] = self.sl_non_living
+        tf_task_cfg["idxs_living"] = self.idxs_living
+        tf_task_cfg["idxs_perceptible"] = self.idxs_perceptible
+        tf_task_cfg["idxs_nonliving"] = self.idxs_nonliving
 
         # Maze size
         tf_task_cfg["max_height"] = tf.constant(self.max_height, tf.int32)
@@ -99,3 +101,33 @@ class EnvConfig:
         }
 
         return tf_task_cfg
+    
+    
+    def to_tf_nca_cfg(self) -> Dict[str, Any]:
+        """
+        Converts nca configs to graph-friendly dict
+        """
+
+        tf_nca_cfg: Dict[str, Any] = {}
+
+        # Architecture Specifications
+        tf_nca_cfg['num_neurons'] = self.num_neurons
+
+        # Channel Indexes
+        tf_nca_cfg['idx_alive'] = self.idx_alive
+        tf_nca_cfg['idx_goal_distance'] = self.idx_goal_distance
+        tf_nca_cfg['idx_obstacles'] = self.idx_obstacles
+        tf_nca_cfg['idx_goal'] = self.idx_goal
+        tf_nca_cfg['idx_start'] = self.idx_start
+        tf_nca_cfg['idx_problem_distance'] = self.idx_problem_distance
+        # Channel Slices
+        tf_nca_cfg['idxs_living'] = self.idxs_living
+        tf_nca_cfg['idxs_perceptible'] = self.idxs_perceptible
+        tf_nca_cfg['idxs_nonliving'] = self.idxs_nonliving
+        
+        # NCA Params
+        tf_nca_cfg['death_threshold'] = tf.constant(self.death_threshold, tf.float32)
+        tf_nca_cfg['update_rate'] = tf.constant(self.update_rate, tf.float32)
+        tf_nca_cfg['live_init'] = tf.constant(self.live_init, tf.float32)
+
+        return tf_nca_cfg

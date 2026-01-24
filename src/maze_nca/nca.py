@@ -1,8 +1,10 @@
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
+from typing import Dict, Any
 
-from maze_nca.config import EnvConfig
+def as_slice(slice_tuple):
+    return slice(*slice_tuple)
 
 def make_perception_filters() -> tf.Tensor:
     """
@@ -44,59 +46,42 @@ def make_perception_filters() -> tf.Tensor:
 class NCAModel(tf.keras.Model):
     def __init__(
         self,
-        living_channels: int,
-        num_neurons: int,
-        death_threshold: float,
-        learned_filters: bool = False,
-        num_learned_filters: int = 10,
+        config: dict[str, Any]
     ):
         super().__init__()
+        self.config = config
 
-        self.living_channels = living_channels
-        self.num_neurons = num_neurons
-        self.death_threshold = death_threshold
-        self.learned_filters = learned_filters
-        self.num_learned_filters = num_learned_filters
+        # Use depthwise sobel, identity, and laplacian filters
+        perception_filters: tf.Tensor = make_perception_filters()
+        H, W, _, F = perception_filters.shape
 
-        # Convolution for perceiving neighbors, environment, and self
-        if learned_filters: # Learn cross-channel filters
-            self.perceive = layers.Conv2D(
-                filters=self.num_learned_filters,
-                kernel_size=3,
-                padding="same",
-                #use_bias=False
-            )
-            self.num_filters = self.num_learned_filters
+        C_perceptible: int = self.config['num_living_channels'] + 3 # (goal_distance, walls, goal)
+        filters = tf.tile(perception_filters, (1, 1, C_perceptible, 1))  # shape: (3, 3, C_perceptible, F)
 
-        else: # Use depthwise sobel, identity, and laplacian filters
-            perception_filters: tf.Tensor = make_perception_filters()
-            H, W, _, F = perception_filters.shape
+        # --- Perception ---
+        # Setting up convolutions for gathering neighborhood information
+        self.perceive = layers.DepthwiseConv2D(
+            kernel_size=(H, W),
+            depth_multiplier=F,
+            padding='same',
+            use_bias=False,
+            trainable=False,
+            depthwise_initializer=filters.numpy() #tf.constant_initializer(filters)
+        )
+        num_filters = C_perceptible * F # F filters for each perceptible channel
 
-            C_perceptible: int = self.living_channels + 3 # (goal_distance, walls, goal)
-            filters = tf.tile(perception_filters, (1, 1, C_perceptible, 1))  # shape: (3, 3, C_perceptible, F)
-
-            self.perceive = layers.DepthwiseConv2D(
-                kernel_size=(H, W),
-                depth_multiplier=F,
-                padding='same',
-                use_bias=False,
-                trainable=False,
-                depthwise_initializer=filters.numpy() #tf.constant_initializer(filters)
-            )
-            self.num_filters = C_perceptible * F # F filters for each perceptible channel
-
-        # MLP for interpreting and responding to perceptions
+        # --- Action ---
+        # Setting up MLP for interpreting and responding to perceptions
         self.react = keras.Sequential([
-            keras.Input((self.num_filters,),), # input filter outputs from convolution
-            layers.Dense(self.num_neurons, activation="relu"), # hidden layer
-            layers.Dense(living_channels) # output delta state
+            keras.Input((num_filters,),), # input filter outputs from convolutions
+            layers.Dense(self.config['num_neurons'], activation="relu"), # hidden layer
+            layers.Dense(self.config['num_living_channels']) # output delta state
         ])
 
 
     def egg(
         self,
-        env : tf.Tensor,
-        config : EnvConfig
+        env: tf.Tensor,
     ) -> tf.Tensor:
         """
         Initilizes living channels and adds them to task tensor. Sets all living channels to a common constant only at the start.
@@ -104,17 +89,14 @@ class NCAModel(tf.keras.Model):
         Parameters
         ----------
         self : NCAModel
-            NCA
-            Attributes used: [
-                living_channels
+            Neural Cellular Automata
+            Config keys used: [
+                idx_start,
+                live_init,
+                num_living_channels
             ]
         env : tf.Tensor
             Task environment tensor with all channels other than the living ones
-        config : EnvConfig
-            Config object specifying simulation parameters
-            Attributes used: [
-                idx_start, live_init
-            ]
 
         Returns
         ----------
@@ -123,10 +105,10 @@ class NCAModel(tf.keras.Model):
         """
 
         # Locate start
-        start_mask = tf.cast(env[..., config.idx_start:config.idx_start+1], tf.float32) # shape: (B, H, W, 1)
+        start_mask = tf.cast(env[..., self.config['idx_start']:self.config['idx_start']+1], tf.float32) # shape: (B, H, W, 1)
         # Broadcast across living channels
-        living_channels = start_mask * config.live_init # shape: (B, H, W, 1)
-        living_channels = tf.repeat(living_channels, repeats=self.living_channels, axis=-1) # shape: (B, H, W, living_channels)
+        living_channel = start_mask * self.config['live_init'] # shape: (B, H, W, 1)
+        living_channels = tf.repeat(living_channel, repeats=self.config['num_living_channels'], axis=-1) # shape: (B, H, W, num_living_channels)
         # Combine with non-living environment
         return tf.concat([living_channels, env], axis=-1) # shape: (B, H, W, all_channels)
 
@@ -136,29 +118,29 @@ class NCAModel(tf.keras.Model):
 
     def call(
         self,
-        world : tf.Tensor,
-        config : EnvConfig
+        world: tf.Tensor,
+        seed: tf.Tensor
     ) -> tf.Tensor:
         """
-        Performs one step of the CA
+        Performs one step of the CA.
 
         Parameters
         ----------
         self : NCAModel
-            NCA
+            Neural Cellular Automata
             Attributes used: [
-                percieve, react,
-                death_threshold
+                percieve, 
+                react
+            ]
+            Config keys used: [
+                idxs_perceptible, idxs_living, idxs_non_living
+                idx_obstacles, idx_alive,
+                update_rate, death_threshold
             ]
         world : tf.Tensor
             State tensor with all channels
-        config : EnvConfig
-            Config object specifying simulation parameters
-            Attributes used: [
-                sl_perceptible, sl_living, sl_non_living
-                idx_obstacles, idx_alive,
-                stochastic_update, update_rate
-            ]
+        seed : tf.Tensor
+            Seed for stochastic updating with stateless rng. Shape: (2)
 
         Returns
         ----------
@@ -166,9 +148,13 @@ class NCAModel(tf.keras.Model):
             Updated state tensor with all channels
         """
 
-        perceptible_world = world[..., config.sl_perceptible] # just perceptible channels
-        alterable_world = world[..., config.sl_living] # just living channels
-        task_env = world[..., config.sl_non_living] # just non-living channels
+        sl_perceptible = slice(*self.config['idxs_perceptible'])
+        sl_living = slice(*self.config['idxs_living'])
+        sl_nonliving = slice(*self.config['idxs_nonliving'])
+
+        perceptible_world = world[..., sl_perceptible] # just perceptible channels
+        alterable_world = world[..., sl_living] # just living channels
+        task_env = world[..., sl_nonliving] # just non-living channels
 
         # --- Perceive Neighbors (convolve into feature maps) ---
         perceived = self.perceive(perceptible_world) # shape: (B, H, W, num_filters)
@@ -176,40 +162,40 @@ class NCAModel(tf.keras.Model):
         # --- Apply reaction at a per-cell level ---
         B, H, W, C = tf.unstack(tf.shape(perceived))
         # Flatten to channel vectors for each individual cell
-        cells = tf.reshape(perceived, (-1, C)) # shape: (B * H * W, num_filters)
+        # Essentially a list of computed neighbor information for each cell
+        cell_neighbor_info = tf.reshape(perceived, (-1, C)) # shape: (B * H * W, num_filters)
         # Apply DNN reaction on a cell-by-cell basis
-        cell_reactions = self.react(cells) # shape: (B * H * W, num_living_channels)
-        # Unflatten, restoring original shape
+        cell_reactions = self.react(cell_neighbor_info) # shape: (B * H * W, num_living_channels)
+        # Unflatten, restoring original shape, distributing reactions spatially
         reaction = tf.reshape(cell_reactions, (B, H, W, -1)) # shape: (B, H, W, num_living_channels)
 
         # --- Mask obstacle cells from being updated ---
         # Generate mask withs 0s where walls are and 1s elsewhere
-        maze_mask = tf.cast(1 - world[..., config.idx_obstacles], reaction.dtype) # shape: (B, H, W, 1)
+        maze_mask = tf.cast(1 - world[..., self.config['idx_obstacles']], reaction.dtype) # shape: (B, H, W, 1)
         # Mask wall locations from update
         reaction *= maze_mask # shape: (B, H, W, num_living_channels)
 
         # --- Stochastic updating ---
-        if config.stochastic_update:
-            # Generate random binary mask
-            stoch_mask = tf.cast(
-                tf.random.uniform((B, H, W, 1)) < config.update_rate,
-                dtype=reaction.dtype
-            ) # shape: (B, H, W, 1)
-            # Stop random cells from updating
-            reaction *= stoch_mask # shape: (B, H, W, num_living_channels)
+        # Generate random binary mask
+        stoch_mask = tf.cast(
+            tf.random.stateless_uniform((B, H, W, 1), seed) < self.config['update_rate'],
+            dtype=reaction.dtype
+        ) # shape: (B, H, W, 1)
+        # Stop random cells from updating
+        reaction *= stoch_mask # shape: (B, H, W, num_living_channels)
 
         # --- Update living channel states ---
-        new_living_state = alterable_world + reaction # shape: (B, H, W, living_channels)
+        new_living_state = alterable_world + reaction # shape: (B, H, W, num_living_channels)
 
         # --- Apply death threshold ---
         # Generate binary mask with 0s for cells below death threshold
-        alive_mask = new_living_state[..., config.idx_alive] >= self.death_threshold # shape: (B, H, W)
+        alive_mask = new_living_state[..., self.config['idx_alive']] >= self.config['death_threshold'] # shape: (B, H, W)
         alive_mask = tf.cast(tf.expand_dims(alive_mask, -1), new_living_state.dtype) # shape: (B, H, W, 1)
         # Broadcast to set all living channels to 0 in death locations
-        new_living_state *= alive_mask # shape: (B, H, W, living_channels)
+        new_living_state *= alive_mask # shape: (B, H, W, num_living_channels)
 
         # --- Bound states between 0 and 1 in a way that is differentiable ---
-        new_living_state = (tf.tanh(new_living_state) + 1.0) / 2.0 # shape: (B, H, W, living_channels)
+        new_living_state = (tf.tanh(new_living_state) + 1.0) / 2.0 # shape: (B, H, W, num_living_channels)
 
         # --- Recombine living and non-living channels ---
         new_state = tf.concat([new_living_state, task_env], axis=3) # shape: (B,H,W,living+non_living)
