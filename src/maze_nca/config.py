@@ -13,7 +13,7 @@ class EnvConfig:
     idx_goal: int = -3
     idx_start: int = -2
     idx_problem_distance: int = -1
-
+    # Indices for easy slice creation (slices can't be serialized)
     idxs_living: tuple = tuple(0, -5)
     idxs_perceptible: tuple = tuple(0, -2)
     idxs_nonliving: tuple = tuple(-5, None)
@@ -112,6 +112,7 @@ class EnvConfig:
 
         # Architecture Specifications
         tf_nca_cfg['num_neurons'] = self.num_neurons
+        tf_nca_cfg['num_living_channels'] = self.num_living_channels
 
         # Channel Indexes
         tf_nca_cfg['idx_alive'] = self.idx_alive
