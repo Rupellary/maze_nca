@@ -50,6 +50,7 @@ class EnvConfig:
 
     # --- BPTT ---
     rollout_steps: int = 30
+    epochs: int = 10
     loss_gamma: float = 0.9
     lr: float = 1e-3
     weight_decay: float = 1e-4
